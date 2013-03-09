@@ -21,10 +21,30 @@ from time import sleep
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
-# Configuring very basic logging settings
-logging.basicConfig()
+import logging
+import logging.handlers
+
+LOG_FILENAME = "mini.log"
+
+# configuring logging
 logger = logging.getLogger('mini')
 logger.setLevel(logging.DEBUG)
+
+# configuring console logging
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)
+
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+ch.setFormatter(formatter)
+
+rotatingHandler = logging.handlers.RotatingFileHandler(
+    LOG_FILENAME, maxBytes=1024*1024*10, backupCount=5)
+rotatingHandler.setFormatter(formatter)
+rotatingHandler.setLevel(logging.DEBUG)
+
+logger.addHandler(ch)
+logger.addHandler(rotatingHandler)
+
 
 def fail(msg):
   logger.warning("Cannot continue: %s", msg)
@@ -42,22 +62,29 @@ class MiniDriver:
 
   def wait_for_text(self, text):
     """ Waits for specific text to appear on a web page. """
-    for i in range(60):
+
+    logger.info("Waiting for <%s> to appear in BODY...", text)
+
+    for i in range(100):
       body = self.driver.find_element_by_css_selector("BODY").text
       if body.find(text) != -1:
+        logger.info("<%s> found", text)
         return
       else:
-        sleep(1)
+        sleep(0.2)
 
     fail("Timed out waiting for text " + text)
 
   def load_results_page(self):
     """ Main data-loading method. """
     driver = self.driver
-    driver.get(self.base_url + "/miniuk/minicherished/homepage/")
+    full_url = self.base_url + "/miniuk/minicherished/homepage/"
+    logger.info("Navigating to %s", full_url)
+    driver.get(full_url)
 
     self.wait_for_text("Search for a MINI")
 
+    logger.info("Filling in search form...")
     # filling in MINI search form
     driver.find_element_by_link_text("Model").click()
     driver.find_element_by_link_text("Countryman").click()
@@ -83,8 +110,12 @@ class MiniDriver:
     driver.find_element_by_id("check-packageChili").click()
     driver.find_element_by_css_selector("#doSearch > a.bg-black > img").click()
 
+    logger.info("Searching, waiting for page to render...")
+
     # waiting for results page to load
     self.wait_for_text("Sort cars")
+
+    logger.info("Sorting cars...")
 
     # why should I sort the list if those guys can do that for me?
     Select(driver.find_element_by_css_selector(
@@ -121,6 +152,7 @@ class MiniDriver:
 
   def navigate_to_page(self, page):
     """ Navigates to specified page number. """
+    logger.info("Navigating to page %d", page)
     self.driver.find_element_by_link_text(str(page)).click()
     sleep(0.5)
 
@@ -176,6 +208,21 @@ def main():
 
   cars = mini.extracted_cars
 
+  all_images = set([car['src'] for car in cars])
+
+  try:
+    prev_img_file = open('prev_imgs.txt', 'r')
+    prev_imgs = set([img.strip() for img in prev_img_file.readlines()])
+  except IOError:
+    prev_imgs = set()
+
+  new_images = all_images - prev_imgs
+
+  new_img_file = open('prev_imgs.txt', 'w')
+  for img in all_images:
+    new_img_file.write(img + '\n')
+  new_img_file.close()
+
   # formatting results
   html = u''
   format = u'''
@@ -194,7 +241,15 @@ def main():
 
   spec_format = u"<tr><td>{0}</td><td>{1}</td></tr>"
 
+  if len(new_images) == 0:
+    logger.info("No new cars available, see you later!")
+    return
+
   for car in cars:
+    if not car['src'] in new_images:
+      logger.info('Ignoring existing %s for %s', car['src'], car['model'])
+      continue
+
     specs = car['specs']
 
     all_specs_html = u''
