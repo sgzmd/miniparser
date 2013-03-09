@@ -1,3 +1,5 @@
+#!/usr/bin/python
+
 # Loads approved used MINI cars from MINI website and sends email with all
 # MINI Countrymans. Code could be cleaner, but hey - it works!
 
